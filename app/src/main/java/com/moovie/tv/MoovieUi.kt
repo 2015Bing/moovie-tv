@@ -106,6 +106,17 @@ fun HomeScreen(vm: MoovieViewModel) {
             }
         }
 
+        if (vm.favorites.isNotEmpty()) {
+            Text("我的收藏", style = MaterialTheme.typography.titleLarge)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                items(vm.favorites, key = { it.movieId }) { entry ->
+                    MovieCard(Movie(entry.movieId, entry.movieName, entry.poster)) {
+                        vm.openMovie(Movie(entry.movieId, entry.movieName, entry.poster))
+                    }
+                }
+            }
+        }
+
         Text("影片", style = MaterialTheme.typography.titleLarge)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(18.dp),
