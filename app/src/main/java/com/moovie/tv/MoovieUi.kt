@@ -45,7 +45,9 @@ fun MoovieRoot(vm: MoovieViewModel) {
             loading = vm.loading,
             error = vm.error,
             onBack = vm::back,
-            onPlay = { playing = it }
+            onPlay = { playing = it },
+            isFavorite = vm.favorites.any { it.movieId == vm.selectedMovie!!.id },
+            onToggleFavorite = { vm.toggleFavorite(vm.selectedMovie!!) }
         )
         else -> HomeScreen(vm)
     }
