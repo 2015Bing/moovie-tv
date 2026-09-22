@@ -20,6 +20,10 @@ class MoovieViewModel : ViewModel() {
     var error by mutableStateOf<String?>(null)
         private set
 
+    init {
+        loadCategory("1")
+    }
+
     fun search() {
         if (searchText.isBlank()) return
         load { api.search(searchText.trim()) }
@@ -31,16 +35,22 @@ class MoovieViewModel : ViewModel() {
 
     fun openMovie(movie: Movie) {
         selectedMovie = movie
+        error = null
         if (movie.playSources.isEmpty()) {
             viewModelScope.launch {
+                loading = true
                 runCatching { withContext(Dispatchers.IO) { api.detail(movie.id) } }
-                    .onSuccess { if (it != null) selectedMovie = it }
-                    .onFailure { error = it.message }
+                    .onSuccess { detail -> if (detail != null) selectedMovie = detail }
+                    .onFailure { error = it.message ?: "详情加载失败" }
+                loading = false
             }
         }
     }
 
-    fun back() { selectedMovie = null }
+    fun back() {
+        selectedMovie = null
+        error = null
+    }
 
     private fun load(block: suspend () -> List<Movie>) {
         viewModelScope.launch {
