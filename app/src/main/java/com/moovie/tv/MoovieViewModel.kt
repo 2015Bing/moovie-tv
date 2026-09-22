@@ -20,6 +20,8 @@ class MoovieViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var history by mutableStateOf<List<HistoryEntry>>(emptyList())
         private set
+    var favorites by mutableStateOf<List<FavoriteEntry>>(emptyList())
+        private set
     var loading by mutableStateOf(false)
         private set
     var error by mutableStateOf<String?>(null)
@@ -30,6 +32,7 @@ class MoovieViewModel(app: Application) : AndroidViewModel(app) {
             historyStore.entries.collectLatest { history = it }
         }
         loadCategory("1")
+        viewModelScope.launch { historyStore.favoritesFlow().collectLatest { favorites = it } }
     }
 
     fun search() {
@@ -59,7 +62,7 @@ class MoovieViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { historyStore.save(movie, episode) }
     }
 
-    fun clearHistory() {
+    fun toggleFavorite(movie: Movie) { viewModelScope.launch { historyStore.toggleFavorite(movie) } }\n\n    fun clearHistory() {
         viewModelScope.launch { historyStore.clear() }
     }
 
