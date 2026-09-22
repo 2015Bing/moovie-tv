@@ -16,4 +16,17 @@ data class PlaySource(
     val episodes: List<Episode>
 )
 
-data class Episode(val name: String, val url: String)
+data class Episode(
+    val name: String,
+    val url: String
+)
+
+data class PlaybackItem(
+    val movie: Movie,
+    val source: PlaySource,
+    val episodeIndex: Int
+) {
+    val episode: Episode get() = source.episodes[episodeIndex]
+    val nextEpisode: Episode?
+        get() = source.episodes.getOrNull(episodeIndex + 1)
+}
