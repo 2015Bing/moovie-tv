@@ -164,12 +164,17 @@ private fun DetailScreen(
     loading: Boolean,
     error: String?,
     onBack: () -> Unit,
-    onPlay: (PlaybackItem) -> Unit
+    onPlay: (PlaybackItem) -> Unit,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit
 ) {
     Column(
         Modifier.fillMaxSize().background(Color(0xFF0B0B0D)).padding(48.dp)
     ) {
-        Button(onClick = onBack) { Text("返回") }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onBack) { Text("返回") }
+            Button(onClick = onToggleFavorite) { Text(if (isFavorite) "取消收藏" else "收藏") }
+        }
         Spacer(Modifier.height(20.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
