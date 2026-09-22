@@ -1,19 +1,24 @@
 package com.moovie.tv
 
+import android.app.Application
 import androidx.compose.runtime.*
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MoovieViewModel : ViewModel() {
+class MoovieViewModel(app: Application) : AndroidViewModel(app) {
     private val api = MoovieApi()
+    private val historyStore = HistoryStore(app)
 
     var searchText by mutableStateOf("")
     var movies by mutableStateOf<List<Movie>>(emptyList())
         private set
     var selectedMovie by mutableStateOf<Movie?>(null)
+        private set
+    var history by mutableStateOf<List<HistoryEntry>>(emptyList())
         private set
     var loading by mutableStateOf(false)
         private set
@@ -21,6 +26,9 @@ class MoovieViewModel : ViewModel() {
         private set
 
     init {
+        viewModelScope.launch {
+            historyStore.entries.collectLatest { history = it }
+        }
         loadCategory("1")
     }
 
@@ -45,6 +53,14 @@ class MoovieViewModel : ViewModel() {
                 loading = false
             }
         }
+    }
+
+    fun recordPlayback(movie: Movie, episode: Episode) {
+        viewModelScope.launch { historyStore.save(movie, episode) }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch { historyStore.clear() }
     }
 
     fun back() {
