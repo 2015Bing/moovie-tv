@@ -29,6 +29,13 @@ import kotlinx.coroutines.delay
 fun MoovieRoot(vm: MoovieViewModel) {
     var playing by remember { mutableStateOf<PlaybackItem?>(null) }
 
+    LaunchedEffect(vm.resumePlayback) {
+        vm.resumePlayback?.let {
+            playing = it
+            vm.consumeResumePlayback()
+        }
+    }
+
     BackHandler(enabled = playing != null || vm.selectedMovie != null) {
         if (playing != null) playing = null else vm.back()
     }
@@ -38,17 +45,22 @@ fun MoovieRoot(vm: MoovieViewModel) {
             item = playing!!,
             onBack = { playing = null },
             onNext = { next -> playing = next },
-            onPlayed = { vm.recordPlayback(it.movie, it.episode) }
+            onPlayed = { vm.recordPlayback(it.movie, it.episode) },
+            onSavePosition = vm::savePlaybackPosition,
+            onLoadPosition = vm::getPlaybackPosition
         )
-        vm.selectedMovie != null -> DetailScreen(
-            movie = vm.selectedMovie!!,
-            loading = vm.loading,
-            error = vm.error,
-            onBack = vm::back,
-            onPlay = { playing = it },
-            isFavorite = vm.favorites.any { it.movieId == vm.selectedMovie!!.id },
-            onToggleFavorite = { vm.toggleFavorite(vm.selectedMovie!!) }
-        )
+        vm.selectedMovie != null -> {
+            val movie = vm.selectedMovie!!
+            DetailScreen(
+                movie = movie,
+                loading = vm.loading,
+                error = vm.error,
+                onBack = vm::back,
+                onPlay = { playing = it },
+                isFavorite = vm.favorites.any { it.movieId == movie.id },
+                onToggleFavorite = { vm.toggleFavorite(movie) }
+            )
+        }
         else -> HomeScreen(vm)
     }
 }
@@ -93,15 +105,7 @@ fun HomeScreen(vm: MoovieViewModel) {
             Text("继续观看", style = MaterialTheme.typography.titleLarge)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 items(vm.history, key = { it.movieId + it.episodeName }) { entry ->
-                    HistoryCard(entry) {
-                        vm.openMovie(
-                            Movie(
-                                id = entry.movieId,
-                                name = entry.movieName,
-                                poster = entry.poster
-                            )
-                        )
-                    }
+                    HistoryCard(entry) { vm.openHistory(entry) }
                 }
             }
         }
@@ -158,16 +162,13 @@ private fun HistoryCard(entry: HistoryEntry, onClick: () -> Unit) {
 @Composable
 private fun AsyncPoster(url: String, modifier: Modifier) {
     Box(modifier.background(Color(0xFF202024)), contentAlignment = Alignment.Center) {
-        if (url.isBlank()) {
-            Text("No Image", color = Color.Gray)
-        } else {
-            AsyncImage(
-                model = url,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        if (url.isBlank()) Text("No Image", color = Color.Gray)
+        else AsyncImage(
+            model = url,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
@@ -181,9 +182,7 @@ private fun DetailScreen(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit
 ) {
-    Column(
-        Modifier.fillMaxSize().background(Color(0xFF0B0B0D)).padding(48.dp)
-    ) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF0B0B0D)).padding(48.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = onBack) { Text("返回") }
             Button(onClick = onToggleFavorite) { Text(if (isFavorite) "取消收藏" else "收藏") }
@@ -192,7 +191,6 @@ private fun DetailScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
             AsyncPoster(movie.poster, Modifier.width(260.dp).height(380.dp))
-
             Column(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -204,7 +202,6 @@ private fun DetailScreen(
                     color = Color.LightGray
                 )
                 Text(movie.description.ifBlank { "暂无简介" }, maxLines = 7)
-
                 if (loading) Text("正在加载播放源…", color = Color.LightGray)
                 error?.let { Text("加载失败：$it", color = Color(0xFFFF8080), maxLines = 2) }
 
@@ -212,9 +209,9 @@ private fun DetailScreen(
                     Text(source.source, style = MaterialTheme.typography.titleLarge)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(source.episodes) { index, episode ->
-                            Button(onClick = {
-                                onPlay(PlaybackItem(movie, source, index))
-                            }) { Text(episode.name) }
+                            Button(onClick = { onPlay(PlaybackItem(movie, source, index)) }) {
+                                Text(episode.name)
+                            }
                         }
                     }
                 }
@@ -228,11 +225,14 @@ private fun PlayerScreen(
     item: PlaybackItem,
     onBack: () -> Unit,
     onNext: (PlaybackItem) -> Unit,
-    onPlayed: (PlaybackItem) -> Unit
+    onPlayed: (PlaybackItem) -> Unit,
+    onSavePosition: (String, Long) -> Unit,
+    onLoadPosition: suspend (String) -> Long
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var ended by remember(item.episode.url) { mutableStateOf(false) }
     var countdown by remember(item.episode.url) { mutableIntStateOf(5) }
+    var resumePosition by remember(item.episode.url) { mutableLongStateOf(0L) }
 
     val exo = remember(item.episode.url) {
         ExoPlayer.Builder(context).build().apply {
@@ -242,17 +242,40 @@ private fun PlayerScreen(
         }
     }
 
-    DisposableEffect(exo) {
+    DisposableEffect(exo, item.episode.url) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) ended = true
+                if (state == Player.STATE_ENDED) {
+                    ended = true
+                    onSavePosition(item.episode.url, 0L)
+                }
             }
         }
         exo.addListener(listener)
         onPlayed(item)
         onDispose {
+            onSavePosition(item.episode.url, exo.currentPosition)
             exo.removeListener(listener)
             exo.release()
+        }
+    }
+
+    LaunchedEffect(item.episode.url) {
+        resumePosition = onLoadPosition(item.episode.url)
+        while (true) {
+            delay(5_000)
+            if (exo.isPlaying) onSavePosition(item.episode.url, exo.currentPosition)
+        }
+    }
+
+    LaunchedEffect(exo, resumePosition) {
+        if (resumePosition > 10_000L) {
+            while (exo.playbackState == Player.STATE_BUFFERING || exo.playbackState == Player.STATE_IDLE) {
+                delay(200)
+            }
+            if (exo.duration <= 0L || resumePosition < exo.duration - 10_000L) {
+                exo.seekTo(resumePosition)
+            }
         }
     }
 
@@ -263,19 +286,24 @@ private fun PlayerScreen(
                 delay(1000)
                 countdown--
             }
-            if (ended) {
-                onNext(PlaybackItem(item.movie, item.source, item.episodeIndex + 1))
-            }
+            if (ended) onNext(PlaybackItem(item.movie, item.source, item.episodeIndex + 1))
         }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         MediaPlayer(player = exo, modifier = Modifier.fillMaxSize())
 
-        Button(
-            onClick = onBack,
-            modifier = Modifier.padding(28.dp).align(Alignment.TopStart)
-        ) { Text("返回") }
+        Button(onClick = onBack, modifier = Modifier.padding(28.dp).align(Alignment.TopStart)) {
+            Text("返回")
+        }
+
+        if (resumePosition > 10_000L && exo.currentPosition < 10_000L) {
+            Text(
+                "继续播放 ${resumePosition / 60_000} 分钟处",
+                modifier = Modifier.align(Alignment.TopEnd).padding(32.dp),
+                color = Color.White
+            )
+        }
 
         if (ended && item.nextEpisode != null) {
             Column(
